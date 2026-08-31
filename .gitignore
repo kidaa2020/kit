@@ -1,0 +1,16 @@
+# Resultados de auditorías — no subir al repo
+audits/
+
+# Entorno Python
+__pycache__/
+*.pyc
+.env
+venv/
+
+# Outputs locales
+web-out/
+*.zip
+
+# MacOS / Windows
+.DS_Store
+Thumbs.db

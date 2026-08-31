@@ -1,0 +1,115 @@
+name: 🔍 ReconKit — Bug Bounty Scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "🎯 Target (ej: ejemplo.com)"
+        required: true
+        type: string
+      modules:
+        description: "📦 Módulos (subdomains,ports,js,web,ai)"
+        required: true
+        default: "subdomains,ports,js,web,ai"
+        type: string
+      port_mode:
+        description: "🔌 Modo nmap"
+        required: true
+        default: "fast"
+        type: choice
+        options:
+          - fast
+          - full
+          - stealth
+          - services
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  recon:
+    name: "🔍 Recon → ${{ github.event.inputs.target }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+
+      # ── Setup ──────────────────────────────────────────────
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 🔧 Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: 📦 Instalar dependencias Python
+        run: pip install aiohttp aiofiles requests -q
+
+      # ── Instalar herramientas ──────────────────────────────
+      - name: 🛠️ Instalar herramientas de recon
+        run: |
+          echo "→ Instalando herramientas Go..."
+          go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+          go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+          go install github.com/projectdiscovery/katana/cmd/katana@latest
+          go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+          go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest
+          go install github.com/tomnomnom/assetfinder@latest
+          go install github.com/lc/gau/v2/cmd/gau@latest
+
+          echo "→ Instalando herramientas apt..."
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nmap ffuf whatweb curl wget jq
+
+          echo "→ Instalando SecLists..."
+          sudo apt-get install -y -qq seclists || true
+
+          echo "→ Actualizando templates nuclei..."
+          nuclei -update-templates -silent 2>/dev/null || true
+
+          echo "✔ Herramientas listas"
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      # ── Ejecutar recon ────────────────────────────────────
+      - name: 🔍 Ejecutar ReconKit
+        env:
+          OPENROUTER_KEY: ${{ secrets.OPENROUTER_KEY }}
+          TARGET: ${{ github.event.inputs.target }}
+          MODULES: ${{ github.event.inputs.modules }}
+          PORT_MODE: ${{ github.event.inputs.port_mode }}
+        run: |
+          python3 scripts/recon.py
+
+      # ── Generar web de resultados ─────────────────────────
+      - name: 🌐 Generar web de resultados
+        run: |
+          python3 scripts/build_web.py
+
+      # ── Publicar en GitHub Pages ──────────────────────────
+      - name: 📤 Publicar resultados en GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./web-out
+          publish_branch: gh-pages
+          force_orphan: false
+          commit_message: "🔍 Scan ${{ github.event.inputs.target }} — ${{ github.run_id }}"
+
+      # ── Subir artifacts ───────────────────────────────────
+      - name: 📦 Subir resultados como artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "recon-${{ github.event.inputs.target }}-${{ github.run_id }}"
+          path: audits/
+          retention-days: 30
